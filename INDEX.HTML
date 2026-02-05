@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Information System (SIS)</title>
+    <style>
+        /* Keep the styling fairly similar to your original; trimmed for brevity */
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #3b7ada; color:#333; }
+        .container { max-width: 1200px; margin: 20px auto; padding: 20px; background: #fff; border-radius: 8px; }
+        header { text-align:center; margin-bottom: 20px; }
+        .card { padding:15px; border-radius:8px; background:#fff; box-shadow:0 2px 6px rgba(0,0,0,0.08); margin-bottom: 20px; }
+        .btn { padding:10px 16px; border:none; border-radius:6px; cursor:pointer; }
+        .btn-primary { background:#3498db; color:#fff; }
+        .btn-success { background:#2ecc71; color:#fff; }
+        .btn-warning { background:#f39c12; color:#fff; }
+        .btn-danger { background:#e74c3c; color:#fff; }
+        .flex { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+        input, select, textarea { padding:8px; border-radius:4px; border:1px solid #ddd; width:100%; }
+        .two-col { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+        .photo-preview-img img { width:100px; height:120px; object-fit:cover; border-radius:6px; border:2px solid #3498db; }
+        table { width:100%; border-collapse:collapse; }
+        th, td { padding:8px; border-bottom:1px solid #eee; text-align:left; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Student Information System</h1>
+            <p id="roleNote">Loading...</p>
+        </header>
+
+        <div class="card">
+            <h2>Student Entry / Edit</h2>
+            <form id="studentForm">
+                <input type="hidden" id="studentId" value="">
+                <div class="two-col">
+                    <div>
+                        <label>Full Name *</label>
+                        <input id="fullName" required>
+                    </div>
+                    <div>
+                        <label>Date of Birth *</label>
+                        <input id="dob" type="date" required>
+                    </div>
+                    <div>
+                        <label>Gender</label>
+                        <select id="gender">
+                            <option>Male</option><option>Female</option><option>Other</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Grade *</label>
+                        <select id="gradeSelect"></select>
+                    </div>
+                    <div>
+                        <label>Parent / Guardian *</label>
+                        <input id="guardian" required>
+                    </div>
+                    <div>
+                        <label>Parent Phone *</label>
+                        <input id="parentPhone" required>
+                    </div>
+                    <div>
+                        <label>Health Status</label>
+                        <select id="healthStatus"><option>Excellent</option><option selected>Good</option><option>Fair</option><option>Poor</option></select>
+                    </div>
+                    <div>
+                        <label>Address *</label>
+                        <textarea id="address" required></textarea>
+                    </div>
+                </div>
+
+                <div style="margin-top:12px;">
+                    <label>Passport Photo</label>
+                    <input id="photoInput" type="file" accept="image/*">
+                    <div class="photo-preview-img" id="photoPreview" style="display:none; margin-top:8px;"></div>
+                </div>
+
+                <div style="margin-top:12px;" class="flex">
+                    <button class="btn btn-primary" type="submit" id="saveBtn">Save Student</button>
+                    <button class="btn btn-success" type="button" id="clearBtn">Clear</button>
+                    <button class="btn btn-warning" type="button" id="cancelEditBtn" style="display:none;">Cancel Edit</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2>Search / View Students</h2>
+            <div class="flex">
+                <input id="searchInput" placeholder="Search by name...">
+                <button class="btn btn-primary" id="searchBtn">Search</button>
+                <button class="btn btn-success" id="showAllBtn">Show All</button>
+                <button class="btn btn-info" id="exportBtn" style="background:#9b59b6;color:#fff;">Export JSON</button>
+                <input id="importFile" type="file" accept=".json">
+                <button class="btn btn-danger" id="importBtn">Import JSON</button>
+            </div>
+
+            <div id="studentsTableWrapper" style="margin-top:12px;">
+                <table id="studentsTable">
+                    <thead><tr><th>Name</th><th>Grade</th><th>Guardian</th><th>Phone</th><th>Actions</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Term Attendance (Teacher)</h2>
+            <p>Teachers can save per-term attendance (days present) for each student.</p>
+            <div class="flex">
+                <select id="termSelect"></select>
+                <input id="termDaysPresent" type="number" min="0" placeholder="Days present in term">
+                <button class="btn btn-primary" id="saveTermAttendanceBtn">Save Term Attendance</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>System Info</h2>
+            <div id="statsArea"></div>
+        </div>
+    </div>
+
+<script>
+const API_BASE = `${location.protocol}//${location.hostname}:${location.port}`;
+let role = (new URLSearchParams(window.location.search)).get('role') || 'admin';
+let employee_id = (new URLSearchParams(window.location.search)).get('employee_id') || null;
+let allowedGrades = null; // if teacher, set to limited grades
+document.getElementById('roleNote').textContent = `Role: ${role.toUpperCase()}${employee_id ? ' | employee_id=' + employee_id : ''}`;
+
+async function api(path, opts={}) {
+    const url = API_BASE + path;
+    const finalOpts = Object.assign({headers: {'Content-Type':'application/json'}}, opts);
+    if (finalOpts.body && typeof finalOpts.body !== 'string') finalOpts.body = JSON.stringify(finalOpts.body);
+    const res = await fetch(url, finalOpts);
+    if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`API ${res.status}: ${txt}`);
+    }
+    // try json
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('application/json')) return res.json();
+    // binary (e.g., file)
+    return res;
+}
+
+async function loadClasses() {
+    const r = await api('/api/classes');
+    const classes = r.classes;
+    const gradeSelect = document.getElementById('gradeSelect');
+    gradeSelect.innerHTML = '';
+    // If teacher role, limit to assigned grades
+    let usable = classes;
+    if (role === 'teacher' && allowedGrades) {
+        usable = classes.filter(c => allowedGrades.includes(c));
+    }
+    usable.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.replace('Grade ', '');
+        opt.textContent = c.replace('Grade ', 'Grade ');
+        gradeSelect.appendChild(opt);
+    });
+}
+
+async function loadTerms() {
+    const r = await api('/api/stats'); // this returns school info but terms from settings are not via endpoint — workaround: call /sis to fetch settings? For simplicity:
+    // We'll prefill Term 1/2/3
+    const termSelect = document.getElementById('termSelect');
+    termSelect.innerHTML = '';
+    ['Term 1', 'Term 2', 'Term 3'].forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t;
+        opt.textContent = t;
+        termSelect.appendChild(opt);
+    });
+}
+
+async function loadStudents(classFilter=null) {
+    let path = '/api/students';
+    if (classFilter) {
+        path += '?class=' + encodeURIComponent(classFilter);
+    } else if (role === 'teacher' && allowedGrades) {
+        // load first allowed grade only for listing
+        const g = allowedGrades[0];
+        path += '?class=' + encodeURIComponent(g);
+    }
+    const r = await api(path);
+    const students = r.students || [];
+    renderStudentsTable(students);
+}
+
+function renderStudentsTable(students) {
+    const tbody = document.querySelector('#studentsTable tbody');
+    tbody.innerHTML = '';
+    students.forEach(s => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${s.name}</td><td>${s.class}</td><td>${s.parent_contact || ''}</td><td>${s.parent_contact || ''}</td>
+        <td>
+            <button class="btn btn-primary" onclick="viewStudent(${s.id})">View</button>
+            <button class="btn btn-warning" onclick="editStudent(${s.id})">Edit</button>
+            <button class="btn btn-danger" onclick="deleteStudent(${s.id})">Delete</button>
+        </td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+async function viewStudent(id) {
+    const r = await api('/api/students/' + id);
+    const s = r.student;
+    alert(`Name: ${s.name}\nClass: ${s.class}\nGuardian: ${s.parent_contact}\nPhone: ${s.parent_contact}`);
+}
+
+async function editStudent(id) {
+    const r = await api('/api/students/' + id);
+    const s = r.student;
+    document.getElementById('studentId').value = s.id;
+    document.getElementById('fullName').value = s.name;
+    document.getElementById('dob').value = s.dob || '';
+    document.getElementById('gender').value = s.gender || 'Male';
+    const gradeValue = s.class ? s.class.replace('Grade ', '') : '';
+    document.getElementById('gradeSelect').value = gradeValue;
+    document.getElementById('guardian').value = s.parent_contact || '';
+    document.getElementById('parentPhone').value = s.parent_contact || '';
+    document.getElementById('healthStatus').value = s.health_status || 'Good';
+    document.getElementById('address').value = s.address || '';
+    // show cancel button
+    document.getElementById('cancelEditBtn').style.display = 'inline-block';
+}
+
+async function deleteStudent(id) {
+    if (!confirm('Delete student?')) return;
+    await api('/api/students/' + id, {method:'DELETE'});
+    await loadStudents();
+    alert('Deleted');
+}
+
+async function saveStudent(e) {
+    e.preventDefault();
+    const id = document.getElementById('studentId').value;
+    const fullname = document.getElementById('fullName').value.trim();
+    const dob = document.getElementById('dob').value;
+    const gender = document.getElementById('gender').value;
+    const grade = document.getElementById('gradeSelect').value;
+    const guardian = document.getElementById('guardian').value.trim();
+    const parentPhone = document.getElementById('parentPhone').value.trim();
+    const healthStatus = document.getElementById('healthStatus').value;
+    const address = document.getElementById('address').value.trim();
+
+    if (!fullname || !dob || !grade || !guardian || !parentPhone || !address) {
+        alert('Please fill required fields');
+        return;
+    }
+    const payload = {
+        name: fullname,
+        class: 'Grade ' + grade,
+        parent_contact: parentPhone,
+        parent_email: '',
+        dob: dob,
+        address: address,
+        health_status: healthStatus,
+        allergies: '',
+        emergency_contact: ''
+    };
+    if (id) {
+        await api('/api/students/' + id, {method:'PUT', body: payload});
+        alert('Updated');
+    } else {
+        await api('/api/students', {method:'POST', body: payload});
+        alert('Created');
+    }
+
+    // Photo upload if selected
+    const fileInput = document.getElementById('photoInput');
+    if (fileInput.files && fileInput.files[0]) {
+        const reader = new FileReader();
+        reader.onload = async function(evt) {
+            const b64 = evt.target.result;
+            // get new id if created
+            // For simplicity reload students and clear form
+            // we try to find student by name
+            const classes = 'Grade ' + grade;
+            const res = await api('/api/students?class=' + encodeURIComponent(classes));
+            const match = res.students.find(s => s.name === fullname);
+            if (match) {
+                await api('/api/students/' + match.id + '/photo', {method:'POST', body:{image_base64: b64}});
+            }
+            await loadStudents();
+        };
+        reader.readAsDataURL(fileInput.files[0]);
+    } else {
+        await loadStudents();
+    }
+    clearForm();
+}
+
+function clearForm() {
+    document.getElementById('studentForm').reset();
+    document.getElementById('studentId').value = '';
+    document.getElementById('cancelEditBtn').style.display = 'none';
+    document.getElementById('photoPreview').style.display = 'none';
+    document.getElementById('photoInput').value = '';
+}
+
+async function importJSON(file) {
+    if (!file) { alert('Select file'); return; }
+    const text = await file.text();
+    try {
+        const parsed = JSON.parse(text);
+        if (!Array.isArray(parsed)) throw new Error('Expected array');
+        const res = await api('/api/import/students', {method:'POST', body: parsed});
+        if (res.success) {
+            alert('Imported successfully');
+            await loadStudents();
+        } else {
+            alert('Import error: ' + res.message);
+        }
+    } catch (e) {
+        alert('Invalid file: ' + e.message);
+    }
+}
+
+async function exportJSON() {
+    const r = await api('/api/export/students');
+    const students = r.students || [];
+    const blob = new Blob([JSON.stringify(students, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'students_export.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+
+async function saveTermAttendance() {
+    // require teacher role
+    if (role !== 'teacher') { alert('Only teachers can save term attendance here'); return; }
+    const term = document.getElementById('termSelect').value;
+    const days = parseInt(document.getElementById('termDaysPresent').value || '0', 10);
+    if (!employee_id) return alert('employee_id missing in URL');
+    // teacher will select a student beforehand via edit or view; for simplicity assume we are editing a student
+    const sid = parseInt(document.getElementById('studentId').value || '0', 10);
+    if (!sid) return alert('Select a student to save term attendance for (click Edit on student)');
+    const term_key = (new Date()).getFullYear() + '-' + term.replace(' ', '');
+    const res = await api('/api/students/' + sid + '/term_attendance', {method:'POST', body: {term_key: term_key, present_days: days}});
+    if (res.success) {
+        alert('Term attendance saved');
+    } else {
+        alert('Error saving term attendance');
+    }
+}
+
+document.getElementById('studentForm').addEventListener('submit', saveStudent);
+document.getElementById('clearBtn').addEventListener('click', clearForm);
+document.getElementById('searchBtn').addEventListener('click', async function() {
+    const q = document.getElementById('searchInput').value.trim();
+    if (!q) return;
+    const res = await api('/api/students/search?q=' + encodeURIComponent(q));
+    renderStudentsTable(res.students || []);
+});
+document.getElementById('showAllBtn').addEventListener('click', async function() { await loadStudents(); });
+document.getElementById('importBtn').addEventListener('click', function() {
+    const f = document.getElementById('importFile').files[0];
+    importJSON(f);
+});
+document.getElementById('exportBtn').addEventListener('click', exportJSON);
+document.getElementById('saveTermAttendanceBtn').addEventListener('click', saveTermAttendance);
+
+document.getElementById('photoInput').addEventListener('change', function(e) {
+    const f = e.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+        const cont = document.getElementById('photoPreview');
+        cont.innerHTML = `<img src="${evt.target.result}">`;
+        cont.style.display = 'block';
+    };
+    reader.readAsDataURL(f);
+});
+
+document.getElementById('cancelEditBtn').addEventListener('click', clearForm);
+
+// On load: if teacher role, fetch context to limit allowed grades
+(async function init() {
+    try {
+        if (role === 'teacher' && employee_id) {
+            const r = await api('/api/employee/' + encodeURIComponent(employee_id) + '/context');
+            if (r.success) {
+                allowedGrades = r.employee.assigned_grades || [];
+            }
+        }
+        await loadClasses();
+        await loadTerms();
+        await loadStudents();
+        const stats = await api('/api/stats');
+        document.getElementById('statsArea').textContent = `School: ${stats.school_info.name} | Year: ${stats.school_info.year} | Total Students: ${stats.school_info.total_students} | Total Employees: ${stats.school_info.total_employees}`;
+    } catch (e) {
+        console.error(e);
+        alert('Failed to initialize SIS: ' + e.message);
+    }
+})();
+</script>
+</body>
+</html>
